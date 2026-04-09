@@ -1,1 +1,4 @@
 chirpy
+/db
+logfile
+.env
