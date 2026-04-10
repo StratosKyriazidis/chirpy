@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/StratosKyriazidis/chirpy/internal/auth"
 	"github.com/StratosKyriazidis/chirpy/internal/database"
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
@@ -35,7 +36,9 @@ func main() {
 	serverMux.HandleFunc("POST /admin/reset", apiCfg.reset)
 	serverMux.HandleFunc("POST /api/chirps", apiCfg.chirpHandler)
 	serverMux.HandleFunc("GET /api/chirps", apiCfg.getChirps)
+	serverMux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.getChirp)
 	serverMux.HandleFunc("POST /api/users", apiCfg.createUser)
+	serverMux.HandleFunc("POST /api/login", apiCfg.login)
 	server := http.Server{
 		Handler: &serverMux,
 		Addr:    ":8080",
@@ -55,11 +58,21 @@ type apiConfig struct {
 	platform       string
 }
 
-func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
+type UserResponse struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Email     string    `json:"email"`
+}
+
+type CreateUserDto struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+func (cfg *apiConfig) login(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
-	body := struct {
-		Email string `json:"email"`
-	}{}
+	body := CreateUserDto{}
 	err := decoder.Decode(&body)
 	if err != nil {
 		log.Printf("Error decoding parameters: %s", err)
@@ -67,12 +80,56 @@ func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer r.Body.Close()
-	usr, err := cfg.database.CreateUser(r.Context(), database.CreateUserParams{ID: uuid.New(), Email: body.Email, CreatedAt: time.Now(), UpdatedAt: time.Now()})
+	usr, err := cfg.database.GetUser(r.Context(), body.Email)
+	if err != nil {
+		respondWithError(w, 401, "Incorrect email or password")
+		return
+	}
+	if match, err := auth.CheckPasswordHash(body.Password, usr.HashedPassword); err != nil || !match {
+		respondWithError(w, 401, "Incorrect email or password")
+		return
+	} else {
+		respondWithJSON(w, 200, UserResponse{
+			ID:        usr.ID,
+			CreatedAt: usr.CreatedAt,
+			UpdatedAt: usr.UpdatedAt,
+			Email:     usr.Email,
+		})
+	}
+}
+
+func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
+	decoder := json.NewDecoder(r.Body)
+	body := CreateUserDto{}
+	err := decoder.Decode(&body)
+	if err != nil {
+		log.Printf("Error decoding parameters: %s", err)
+		respondWithError(w, 500, "Something went wrong")
+		return
+	}
+	defer r.Body.Close()
+	hashed, err := auth.HashPassword(body.Password)
 	if err != nil {
 		respondWithError(w, 500, "Something went wrong")
 		return
 	}
-	respondWithJSON(w, 201, usr)
+	usr, err := cfg.database.CreateUser(r.Context(), database.CreateUserParams{
+		ID:             uuid.New(),
+		Email:          body.Email,
+		HashedPassword: hashed,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	})
+	if err != nil {
+		respondWithError(w, 500, "Something went wrong")
+		return
+	}
+	respondWithJSON(w, 201, UserResponse{
+		ID:        usr.ID,
+		CreatedAt: usr.CreatedAt,
+		UpdatedAt: usr.UpdatedAt,
+		Email:     usr.Email,
+	})
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -136,6 +193,21 @@ func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondWithJSON(w, 200, chirps)
+}
+
+func (cfg *apiConfig) getChirp(w http.ResponseWriter, r *http.Request) {
+	idString := r.PathValue("chirpID")
+	id, err := uuid.Parse(idString)
+	if err != nil {
+		respondWithError(w, 400, "Bad uuid value")
+		return
+	}
+	chirp, err := cfg.database.GetChirp(r.Context(), id)
+	if err != nil {
+		respondWithError(w, 404, "Chirp not found")
+		return
+	}
+	respondWithJSON(w, 200, chirp)
 }
 
 type chirpCreateBody struct {
