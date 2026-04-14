@@ -515,3 +515,68 @@ func TestGetChirps(t *testing.T) {
 		t.Fatalf("chirps = %#v, want %#v", chirps, expected)
 	}
 }
+
+func TestGetUserFromRefreshToken(t *testing.T) {
+	t.Parallel()
+
+	expected := User{
+		ID:             uuid.New(),
+		CreatedAt:      time.Date(2026, time.April, 11, 10, 0, 0, 0, time.UTC),
+		UpdatedAt:      time.Date(2026, time.April, 11, 10, 5, 0, 0, time.UTC),
+		Email:          "user@example.com",
+		HashedPassword: "hashed-password",
+	}
+	token := "refresh-token"
+	state := &stubState{
+		queryFunc: func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			if query != getUserFromRefreshToken {
+				t.Fatalf("query = %q, want %q", query, getUserFromRefreshToken)
+			}
+			assertNamedArgs(t, args, token)
+			return &stubRows{
+				columns: []string{"id", "created_at", "updated_at", "email", "hashed_password"},
+				rows: [][]driver.Value{{
+					expected.ID.String(),
+					expected.CreatedAt,
+					expected.UpdatedAt,
+					expected.Email,
+					expected.HashedPassword,
+				}},
+			}, nil
+		},
+	}
+
+	queries := New(openStubDB(t, state))
+	user, err := queries.GetUserFromRefreshToken(context.Background(), token)
+	if err != nil {
+		t.Fatalf("GetUserFromRefreshToken returned error: %v", err)
+	}
+	if !reflect.DeepEqual(user, expected) {
+		t.Fatalf("user = %#v, want %#v", user, expected)
+	}
+}
+
+func TestRevokeRefreshToken(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.April, 11, 11, 0, 0, 0, time.UTC)
+	params := RevokeRefreshTokenParams{
+		Token:     "refresh-token",
+		RevokedAt: sql.NullTime{Time: now, Valid: true},
+		UpdatedAt: now,
+	}
+	state := &stubState{
+		execFunc: func(query string, args []driver.NamedValue) (driver.Result, error) {
+			if query != revokeRefreshToken {
+				t.Fatalf("query = %q, want %q", query, revokeRefreshToken)
+			}
+			assertNamedArgs(t, args, params.Token, params.RevokedAt, params.UpdatedAt)
+			return stubResult{rowsAffected: 1}, nil
+		},
+	}
+
+	queries := New(openStubDB(t, state))
+	if err := queries.RevokeRefreshToken(context.Background(), params); err != nil {
+		t.Fatalf("RevokeRefreshToken returned error: %v", err)
+	}
+}

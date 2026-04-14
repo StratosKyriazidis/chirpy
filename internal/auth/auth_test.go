@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"net/http"
 	"testing"
 	"time"
 
@@ -129,5 +130,68 @@ func TestValidateJWTRejectsInvalidSubject(t *testing.T) {
 	_, err = ValidateJWT(tokenString, secret)
 	if err == nil {
 		t.Fatal("expected ValidateJWT to reject a token with a non-UUID subject")
+	}
+}
+
+func TestGetBearerToken(t *testing.T) {
+	t.Parallel()
+
+	headers := http.Header{}
+	headers.Set("Authorization", "Bearer refresh-token")
+
+	token, err := GetBearerToken(headers)
+	if err != nil {
+		t.Fatalf("GetBearerToken returned error: %v", err)
+	}
+	if token != "refresh-token" {
+		t.Fatalf("GetBearerToken returned %q, want %q", token, "refresh-token")
+	}
+}
+
+func TestGetBearerTokenRejectsInvalidHeader(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name  string
+		value string
+	}{
+		{name: "missing header", value: ""},
+		{name: "missing scheme", value: "refresh-token"},
+		{name: "wrong scheme", value: "Token refresh-token"},
+		{name: "missing token", value: "Bearer "},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			headers := http.Header{}
+			if tc.value != "" {
+				headers.Set("Authorization", tc.value)
+			}
+
+			_, err := GetBearerToken(headers)
+			if err == nil {
+				t.Fatalf("expected GetBearerToken to reject %q", tc.value)
+			}
+		})
+	}
+}
+
+func TestMakeRefreshToken(t *testing.T) {
+	t.Parallel()
+
+	token := MakeRefreshToken()
+	if token == "" {
+		t.Fatal("MakeRefreshToken returned an empty token")
+	}
+	if len(token) != 64 {
+		t.Fatalf("MakeRefreshToken length = %d, want %d", len(token), 64)
+	}
+
+	other := MakeRefreshToken()
+	if other == token {
+		t.Fatal("MakeRefreshToken returned the same token twice")
 	}
 }

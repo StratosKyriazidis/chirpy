@@ -1,6 +1,11 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/alexedwards/argon2id"
@@ -46,7 +51,7 @@ func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (str
 
 func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 	claims := jwt.RegisteredClaims{}
-	token, err := jwt.ParseWithClaims(tokenString, &claims, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &claims, func(token *jwt.Token) (any, error) {
 		return []byte(tokenSecret), nil
 	})
 	if err != nil {
@@ -61,4 +66,26 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 		return uuid.Nil, err
 	}
 	return id, nil
+}
+
+func GetBearerToken(headers http.Header) (string, error) {
+	token := headers.Get("Authorization")
+	if len(token) == 0 {
+		return "", errors.New("no auth token")
+	}
+	splitted := strings.Split(token, " ")
+	if len(splitted) != 2 || splitted[0] != "Bearer" || splitted[1] == "" {
+		return "", errors.New("invalid bearer token")
+	}
+	return splitted[1], nil
+}
+
+func MakeRefreshToken() string {
+	b := make([]byte, 32)
+	_, err := rand.Read(b)
+	if err != nil {
+		return ""
+	}
+	s := hex.EncodeToString(b)
+	return s
 }
