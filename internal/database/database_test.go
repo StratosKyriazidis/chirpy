@@ -248,13 +248,14 @@ func TestCreateUser(t *testing.T) {
 			}
 			assertNamedArgs(t, args, params.ID, params.CreatedAt, params.UpdatedAt, params.Email, params.HashedPassword)
 			return &stubRows{
-				columns: []string{"id", "created_at", "updated_at", "email", "hashed_password"},
+				columns: []string{"id", "created_at", "updated_at", "email", "hashed_password", "is_chirpy_red"},
 				rows: [][]driver.Value{{
 					params.ID.String(),
 					params.CreatedAt,
 					params.UpdatedAt,
 					params.Email,
 					params.HashedPassword,
+					false,
 				}},
 			}, nil
 		},
@@ -280,6 +281,9 @@ func TestCreateUser(t *testing.T) {
 	}
 	if user.HashedPassword != params.HashedPassword {
 		t.Fatalf("hashed_password = %q, want %q", user.HashedPassword, params.HashedPassword)
+	}
+	if user.IsChirpyRed {
+		t.Fatal("is_chirpy_red = true, want false")
 	}
 }
 
@@ -314,6 +318,7 @@ func TestGetUser(t *testing.T) {
 		UpdatedAt:      now.Add(time.Minute),
 		Email:          "user@example.com",
 		HashedPassword: "hashed-password",
+		IsChirpyRed:    false,
 	}
 	state := &stubState{
 		queryFunc: func(query string, args []driver.NamedValue) (driver.Rows, error) {
@@ -322,13 +327,14 @@ func TestGetUser(t *testing.T) {
 			}
 			assertNamedArgs(t, args, expected.Email)
 			return &stubRows{
-				columns: []string{"id", "created_at", "updated_at", "email", "hashed_password"},
+				columns: []string{"id", "created_at", "updated_at", "email", "hashed_password", "is_chirpy_red"},
 				rows: [][]driver.Value{{
 					expected.ID.String(),
 					expected.CreatedAt,
 					expected.UpdatedAt,
 					expected.Email,
 					expected.HashedPassword,
+					expected.IsChirpyRed,
 				}},
 			}, nil
 		},
@@ -338,6 +344,100 @@ func TestGetUser(t *testing.T) {
 	user, err := queries.GetUser(context.Background(), expected.Email)
 	if err != nil {
 		t.Fatalf("GetUser returned error: %v", err)
+	}
+	if !reflect.DeepEqual(user, expected) {
+		t.Fatalf("user = %#v, want %#v", user, expected)
+	}
+}
+
+func TestUpdateUser(t *testing.T) {
+	t.Parallel()
+
+	createdAt := time.Date(2026, time.April, 10, 13, 0, 0, 0, time.UTC)
+	params := UpdateUserParams{
+		ID:             uuid.New(),
+		Email:          "updated@example.com",
+		HashedPassword: "updated-hash",
+		UpdatedAt:      createdAt.Add(2 * time.Hour),
+	}
+	expected := User{
+		ID:             params.ID,
+		CreatedAt:      createdAt,
+		UpdatedAt:      params.UpdatedAt,
+		Email:          params.Email,
+		HashedPassword: params.HashedPassword,
+		IsChirpyRed:    false,
+	}
+	state := &stubState{
+		queryFunc: func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			if query != updateUser {
+				t.Fatalf("query = %q, want %q", query, updateUser)
+			}
+			assertNamedArgs(t, args, params.ID, params.Email, params.HashedPassword, params.UpdatedAt)
+			return &stubRows{
+				columns: []string{"id", "created_at", "updated_at", "email", "hashed_password", "is_chirpy_red"},
+				rows: [][]driver.Value{{
+					expected.ID.String(),
+					expected.CreatedAt,
+					expected.UpdatedAt,
+					expected.Email,
+					expected.HashedPassword,
+					expected.IsChirpyRed,
+				}},
+			}, nil
+		},
+	}
+
+	queries := New(openStubDB(t, state))
+	user, err := queries.UpdateUser(context.Background(), params)
+	if err != nil {
+		t.Fatalf("UpdateUser returned error: %v", err)
+	}
+	if !reflect.DeepEqual(user, expected) {
+		t.Fatalf("user = %#v, want %#v", user, expected)
+	}
+}
+
+func TestUpgradeUserToChirpyRed(t *testing.T) {
+	t.Parallel()
+
+	createdAt := time.Date(2026, time.April, 10, 13, 0, 0, 0, time.UTC)
+	params := UpgradeUserToChirpyRedParams{
+		ID:        uuid.New(),
+		UpdatedAt: createdAt.Add(3 * time.Hour),
+	}
+	expected := User{
+		ID:             params.ID,
+		CreatedAt:      createdAt,
+		UpdatedAt:      params.UpdatedAt,
+		Email:          "red@example.com",
+		HashedPassword: "hashed-password",
+		IsChirpyRed:    true,
+	}
+	state := &stubState{
+		queryFunc: func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			if query != upgradeUserToChirpyRed {
+				t.Fatalf("query = %q, want %q", query, upgradeUserToChirpyRed)
+			}
+			assertNamedArgs(t, args, params.ID, params.UpdatedAt)
+			return &stubRows{
+				columns: []string{"id", "created_at", "updated_at", "email", "hashed_password", "is_chirpy_red"},
+				rows: [][]driver.Value{{
+					expected.ID.String(),
+					expected.CreatedAt,
+					expected.UpdatedAt,
+					expected.Email,
+					expected.HashedPassword,
+					expected.IsChirpyRed,
+				}},
+			}, nil
+		},
+	}
+
+	queries := New(openStubDB(t, state))
+	user, err := queries.UpgradeUserToChirpyRed(context.Background(), params)
+	if err != nil {
+		t.Fatalf("UpgradeUserToChirpyRed returned error: %v", err)
 	}
 	if !reflect.DeepEqual(user, expected) {
 		t.Fatalf("user = %#v, want %#v", user, expected)
@@ -415,6 +515,26 @@ func TestDeleteChirps(t *testing.T) {
 	queries := New(openStubDB(t, state))
 	if err := queries.DeleteChirps(context.Background()); err != nil {
 		t.Fatalf("DeleteChirps returned error: %v", err)
+	}
+}
+
+func TestDeleteChirp(t *testing.T) {
+	t.Parallel()
+
+	chirpID := uuid.New()
+	state := &stubState{
+		execFunc: func(query string, args []driver.NamedValue) (driver.Result, error) {
+			if query != deleteChirp {
+				t.Fatalf("query = %q, want %q", query, deleteChirp)
+			}
+			assertNamedArgs(t, args, chirpID)
+			return stubResult{rowsAffected: 1}, nil
+		},
+	}
+
+	queries := New(openStubDB(t, state))
+	if err := queries.DeleteChirp(context.Background(), chirpID); err != nil {
+		t.Fatalf("DeleteChirp returned error: %v", err)
 	}
 }
 
@@ -516,6 +636,64 @@ func TestGetChirps(t *testing.T) {
 	}
 }
 
+func TestGetChirpsByAuthor(t *testing.T) {
+	t.Parallel()
+
+	authorID := uuid.New()
+	expected := []Chirp{
+		{
+			ID:        uuid.New(),
+			CreatedAt: time.Date(2026, time.April, 10, 16, 0, 0, 0, time.UTC),
+			UpdatedAt: time.Date(2026, time.April, 10, 16, 1, 0, 0, time.UTC),
+			Body:      "first",
+			UserID:    authorID,
+		},
+		{
+			ID:        uuid.New(),
+			CreatedAt: time.Date(2026, time.April, 10, 17, 0, 0, 0, time.UTC),
+			UpdatedAt: time.Date(2026, time.April, 10, 17, 1, 0, 0, time.UTC),
+			Body:      "second",
+			UserID:    authorID,
+		},
+	}
+	state := &stubState{
+		queryFunc: func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			if query != getChirpsByAuthor {
+				t.Fatalf("query = %q, want %q", query, getChirpsByAuthor)
+			}
+			assertNamedArgs(t, args, authorID)
+			return &stubRows{
+				columns: []string{"id", "created_at", "updated_at", "body", "user_id"},
+				rows: [][]driver.Value{
+					{
+						expected[0].ID.String(),
+						expected[0].CreatedAt,
+						expected[0].UpdatedAt,
+						expected[0].Body,
+						expected[0].UserID.String(),
+					},
+					{
+						expected[1].ID.String(),
+						expected[1].CreatedAt,
+						expected[1].UpdatedAt,
+						expected[1].Body,
+						expected[1].UserID.String(),
+					},
+				},
+			}, nil
+		},
+	}
+
+	queries := New(openStubDB(t, state))
+	chirps, err := queries.GetChirpsByAuthor(context.Background(), authorID)
+	if err != nil {
+		t.Fatalf("GetChirpsByAuthor returned error: %v", err)
+	}
+	if !reflect.DeepEqual(chirps, expected) {
+		t.Fatalf("chirps = %#v, want %#v", chirps, expected)
+	}
+}
+
 func TestGetUserFromRefreshToken(t *testing.T) {
 	t.Parallel()
 
@@ -525,6 +703,7 @@ func TestGetUserFromRefreshToken(t *testing.T) {
 		UpdatedAt:      time.Date(2026, time.April, 11, 10, 5, 0, 0, time.UTC),
 		Email:          "user@example.com",
 		HashedPassword: "hashed-password",
+		IsChirpyRed:    true,
 	}
 	token := "refresh-token"
 	state := &stubState{
@@ -534,13 +713,14 @@ func TestGetUserFromRefreshToken(t *testing.T) {
 			}
 			assertNamedArgs(t, args, token)
 			return &stubRows{
-				columns: []string{"id", "created_at", "updated_at", "email", "hashed_password"},
+				columns: []string{"id", "created_at", "updated_at", "email", "hashed_password", "is_chirpy_red"},
 				rows: [][]driver.Value{{
 					expected.ID.String(),
 					expected.CreatedAt,
 					expected.UpdatedAt,
 					expected.Email,
 					expected.HashedPassword,
+					expected.IsChirpyRed,
 				}},
 			}, nil
 		},

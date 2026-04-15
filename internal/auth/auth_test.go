@@ -179,6 +179,52 @@ func TestGetBearerTokenRejectsInvalidHeader(t *testing.T) {
 	}
 }
 
+func TestGetAPIKey(t *testing.T) {
+	t.Parallel()
+
+	headers := http.Header{}
+	headers.Set("Authorization", "ApiKey polka-secret")
+
+	key, err := GetAPIKey(headers)
+	if err != nil {
+		t.Fatalf("GetAPIKey returned error: %v", err)
+	}
+	if key != "polka-secret" {
+		t.Fatalf("GetAPIKey returned %q, want %q", key, "polka-secret")
+	}
+}
+
+func TestGetAPIKeyRejectsInvalidHeader(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name  string
+		value string
+	}{
+		{name: "missing header", value: ""},
+		{name: "missing scheme", value: "polka-secret"},
+		{name: "wrong scheme", value: "Bearer polka-secret"},
+		{name: "missing key", value: "ApiKey "},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			headers := http.Header{}
+			if tc.value != "" {
+				headers.Set("Authorization", tc.value)
+			}
+
+			_, err := GetAPIKey(headers)
+			if err == nil {
+				t.Fatalf("expected GetAPIKey to reject %q", tc.value)
+			}
+		})
+	}
+}
+
 func TestMakeRefreshToken(t *testing.T) {
 	t.Parallel()
 

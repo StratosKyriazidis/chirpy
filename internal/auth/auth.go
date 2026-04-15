@@ -69,14 +69,24 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 }
 
 func GetBearerToken(headers http.Header) (string, error) {
+	return getAuthHeaderValue(headers, "Bearer")
+}
+
+func GetAPIKey(headers http.Header) (string, error) {
+	return getAuthHeaderValue(headers, "ApiKey")
+}
+
+func getAuthHeaderValue(headers http.Header, scheme string) (string, error) {
 	token := headers.Get("Authorization")
-	if len(token) == 0 {
+	if token == "" {
 		return "", errors.New("no auth token")
 	}
+
 	splitted := strings.Split(token, " ")
-	if len(splitted) != 2 || splitted[0] != "Bearer" || splitted[1] == "" {
-		return "", errors.New("invalid bearer token")
+	if len(splitted) != 2 || splitted[0] != scheme || splitted[1] == "" {
+		return "", errors.New("invalid auth header")
 	}
+
 	return splitted[1], nil
 }
 
