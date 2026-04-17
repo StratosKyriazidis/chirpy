@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -381,6 +382,7 @@ func (cfg *apiConfig) chirpHandler(w http.ResponseWriter, r *http.Request) {
 
 func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request) {
 	authorIDString := r.URL.Query().Get("author_id")
+	sortOrder := r.URL.Query().Get("sort")
 
 	var (
 		chirps []database.Chirp
@@ -401,6 +403,14 @@ func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, 500, "Could not retrieve chirps")
 		return
 	}
+
+	sort.Slice(chirps, func(i, j int) bool {
+		if sortOrder == "desc" {
+			return chirps[i].CreatedAt.After(chirps[j].CreatedAt)
+		}
+		return chirps[i].CreatedAt.Before(chirps[j].CreatedAt)
+	})
+
 	respondWithJSON(w, 200, chirps)
 }
 

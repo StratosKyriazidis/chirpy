@@ -2,12 +2,17 @@
 
 ## Chirp Endpoints
 
-`GET /api/chirps` returns chirps sorted by `created_at` in ascending order.
+`GET /api/chirps` returns chirps sorted by `created_at`. It accepts an optional
+`sort` query parameter with `asc` and `desc` values. If omitted, chirps are
+sorted in ascending order.
+
 It also accepts an optional `author_id` query parameter to limit results to
 chirps created by a specific author:
 
 ```text
 GET /api/chirps?author_id=<user-uuid>
+GET /api/chirps?sort=desc
+GET /api/chirps?author_id=<user-uuid>&sort=desc
 ```
 
 If `author_id` is provided but is not a valid UUID, the endpoint returns `400`.
